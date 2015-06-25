@@ -174,14 +174,14 @@ class SearchParamExtractorDstu2 extends BaseSearchParamExtractor implements ISea
 						continue;
 					}
 
-					if (new UriDt(BaseFhirDao.UCUM_NS).equals(nextValue.getSystemElement())) {
+					if (new UriDt(BaseHapiFhirDao.UCUM_NS).equals(nextValue.getSystemElement())) {
 						if (isNotBlank(nextValue.getCode())) {
 
 							Unit<? extends Quantity> unit = Unit.valueOf(nextValue.getCode());
 							javax.measure.converter.UnitConverter dayConverter = unit.getConverterTo(NonSI.DAY);
 							double dayValue = dayConverter.convert(nextValue.getValue().doubleValue());
 							DurationDt newValue = new DurationDt();
-							newValue.setSystem(BaseFhirDao.UCUM_NS);
+							newValue.setSystem(BaseHapiFhirDao.UCUM_NS);
 							newValue.setCode(NonSI.DAY.toString());
 							newValue.setValue(dayValue);
 							nextValue = newValue;

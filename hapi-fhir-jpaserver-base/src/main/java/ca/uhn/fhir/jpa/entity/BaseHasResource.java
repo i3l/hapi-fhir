@@ -39,7 +39,7 @@ import ca.uhn.fhir.model.primitive.IdDt;
 import ca.uhn.fhir.model.primitive.InstantDt;
 
 @MappedSuperclass
-public abstract class BaseHasResource {
+public abstract class BaseHasResource extends BaseResourceEntity{
 
 	public static final int MAX_TITLE_LENGTH = 100;
 

@@ -24,7 +24,7 @@ import java.util.Date;
 import java.util.Map;
 import java.util.Set;
 
-import ca.uhn.fhir.jpa.entity.BaseHasResource;
+import ca.uhn.fhir.jpa.entity.BaseResourceEntity;
 import ca.uhn.fhir.jpa.entity.TagTypeEnum;
 import ca.uhn.fhir.model.api.IQueryParameterType;
 import ca.uhn.fhir.model.api.IResource;
@@ -73,13 +73,13 @@ public interface IFhirResourceDao<T extends IResource> extends IDao {
 	 */
 	T read(IdDt theId);
 
-	BaseHasResource readEntity(IdDt theId);
+	BaseResourceEntity readEntity(IdDt theId);
 
 	/**
 	 * @param theCheckForForcedId If true, this method should fail if the requested ID contains a numeric PID which exists, but is
 	 *                            obscured by a "forced ID" so should not exist as far as the outside world is concerned.
 	 */
-	BaseHasResource readEntity(IdDt theId, boolean theCheckForForcedId);
+	BaseResourceEntity readEntity(IdDt theId, boolean theCheckForForcedId);
 
 	void removeTag(IdDt theId, TagTypeEnum theTagType, String theScheme, String theTerm);
 

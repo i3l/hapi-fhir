@@ -20,16 +20,16 @@ package ca.uhn.fhir.jpa.dao;
  * #L%
  */
 
-import ca.uhn.fhir.jpa.entity.ResourceTable;
+import ca.uhn.fhir.jpa.entity.BaseResourceEntity;
 import ca.uhn.fhir.model.api.IResource;
 import ca.uhn.fhir.rest.api.MethodOutcome;
 
 public class DaoMethodOutcome extends MethodOutcome {
 
-    private ResourceTable myEntity;
+    private BaseResourceEntity myEntity;
     private IResource myResource;
 
-    public ResourceTable getEntity() {
+    public BaseResourceEntity getEntity() {
         return myEntity;
     }
 
@@ -43,8 +43,8 @@ public class DaoMethodOutcome extends MethodOutcome {
         return this;
     }
 
-    public DaoMethodOutcome setEntity(ResourceTable theEntity) {
-        myEntity = theEntity;
+    public DaoMethodOutcome setEntity(BaseResourceEntity entity) {
+        myEntity = entity;
         return this;
     }
 
