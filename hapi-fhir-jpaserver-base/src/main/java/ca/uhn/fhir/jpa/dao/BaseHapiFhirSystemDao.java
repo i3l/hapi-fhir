@@ -22,7 +22,6 @@ package ca.uhn.fhir.jpa.dao;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 import javax.persistence.Tuple;
 import javax.persistence.TypedQuery;

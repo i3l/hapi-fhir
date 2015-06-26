@@ -44,8 +44,8 @@ import org.hibernate.annotations.Index;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.RuntimeResourceDefinition;
+import ca.uhn.fhir.jpa.conf.HapiFhirContextHelper;
 import ca.uhn.fhir.jpa.dao.GZipUtil;
-import ca.uhn.fhir.jpa.provider.HapiFhirContextHelper;
 import ca.uhn.fhir.model.api.IResource;
 import ca.uhn.fhir.model.api.ResourceMetadataKeyEnum;
 import ca.uhn.fhir.model.api.Tag;

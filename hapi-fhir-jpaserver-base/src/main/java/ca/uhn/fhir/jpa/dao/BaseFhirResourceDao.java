@@ -134,8 +134,9 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 	private DaoMethodOutcome doCreate(T theResource, String theIfNoneExist, boolean thePerformIndexing) {
 		StopWatch w = new StopWatch();
 		BaseResourceEntity entity = new Mirror().on(myResourceEntity).invoke().constructor().withoutArgs();
+		entity.constructEntityFromResource(theResource);
 
-		if (isNotBlank(theIfNoneExist)) {
+		if (isNotBlank(theIfNoneExist)) {//FIXME remove this if not needed
 			Set<Long> match = baseFhirDao.processMatchUrl(theIfNoneExist, myResourceType);
 			if (match.size() > 1) {
 				String msg = baseFhirDao.getContext().getLocalizer().getMessage(BaseFhirDao.class, "transactionOperationWithMultipleMatchFailure", "CREATE", theIfNoneExist, match.size());
