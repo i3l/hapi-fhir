@@ -35,6 +35,8 @@ import javax.persistence.Temporal;
 import javax.persistence.TemporalType;
 
 import ca.uhn.fhir.context.FhirVersionEnum;
+import ca.uhn.fhir.jpa.dao.ResourceTransformer;
+import ca.uhn.fhir.model.api.IResource;
 import ca.uhn.fhir.model.primitive.IdDt;
 import ca.uhn.fhir.model.primitive.InstantDt;
 
@@ -169,4 +171,14 @@ public abstract class BaseHasResource extends BaseResourceEntity{
 		myUpdated = theUpdated.getValue();
 	}
 
+	@Override
+	public IResource getRelatedResource() {
+		return (IResource)ResourceTransformer.toResource(this);
+	}
+	
+	@Override
+	public IResourceEntity constructEntityFromResource(IResource resource) {
+		// TODO Auto-generated method stub
+		return null;
+	}
 }

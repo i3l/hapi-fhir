@@ -38,7 +38,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import ca.uhn.fhir.context.RuntimeResourceDefinition;
 import ca.uhn.fhir.context.RuntimeSearchParam;
 import ca.uhn.fhir.jpa.entity.BaseResourceEntity;
-import ca.uhn.fhir.jpa.entity.IResourceTable;
+import ca.uhn.fhir.jpa.entity.IResourceEntity;
 import ca.uhn.fhir.jpa.entity.ResourceIndexedSearchParamString;
 import ca.uhn.fhir.jpa.entity.ResourceTable;
 import ca.uhn.fhir.jpa.entity.TagTypeEnum;
@@ -86,7 +86,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 	private PlatformTransactionManager myPlatformTransactionManager;
 	
 	private Class<T> myResourceType;
-	private Class<? extends BaseResourceEntity> myResourceTable;
+	private Class<? extends BaseResourceEntity> myResourceEntity;
 
 	@Override
 	public Class<T> getResourceType() {
@@ -99,12 +99,12 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 		myResourceType = (Class<T>) theTableType;
 	}
 
-	public Class<? extends BaseResourceEntity> getResourceTable() {
-		return myResourceTable;
+	public Class<? extends BaseResourceEntity> getResourceEntity() {
+		return myResourceEntity;
 	}
 
-	public void setResourceTable(Class<? extends BaseResourceEntity> resourceTable) {
-		this.myResourceTable = resourceTable;
+	public void setResourceEntity(Class<? extends BaseResourceEntity> theResourceEntity) {
+		this.myResourceEntity = theResourceEntity;
 	}
 	
 	/*
@@ -133,7 +133,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 	
 	private DaoMethodOutcome doCreate(T theResource, String theIfNoneExist, boolean thePerformIndexing) {
 		StopWatch w = new StopWatch();
-		BaseResourceEntity entity = new Mirror().on(myResourceTable).invoke().constructor().withoutArgs();
+		BaseResourceEntity entity = new Mirror().on(myResourceEntity).invoke().constructor().withoutArgs();
 
 		if (isNotBlank(theIfNoneExist)) {
 			Set<Long> match = baseFhirDao.processMatchUrl(theIfNoneExist, myResourceType);
@@ -167,6 +167,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 		return outcome;
 	}
 	
+	@SuppressWarnings("unchecked")
 	@Override
 	public T read(IdDt theId) {
 //		validateResourceTypeAndThrowIllegalArgumentException(theId);
@@ -175,7 +176,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 		BaseResourceEntity entity = (BaseResourceEntity) readEntity(theId);
 //		validateResourceType(entity);
 
-		T retVal = entity.getRelatedResource();//toResource(myResourceType, entity);
+		T retVal = (T) entity.getRelatedResource();//toResource(myResourceType, entity);
 
 		InstantDt deleted = ResourceMetadataKeyEnum.DELETED_AT.get(retVal);
 		if (deleted != null && !deleted.isEmpty()) {
@@ -214,7 +215,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 		//validateResourceTypeAndThrowIllegalArgumentException(theId);
 	
 		Long pid = theId.getIdPartAsLong();//translateForcedIdToPid(theId); //WARNING ForcedId strategy 
-		BaseResourceEntity entity = myEntityManager.find(getResourceTable(), pid);
+		BaseResourceEntity entity = myEntityManager.find(getResourceEntity(), pid);
 	//	if (theId.hasVersionIdPart()) { //FIXME implement the versioning check
 	//		if (entity.getVersion() != theId.getVersionIdPartAsLong()) {
 	//			entity = null;
@@ -280,7 +281,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 		if (theParams.isEmpty()) {
 			CriteriaBuilder builder = myEntityManager.getCriteriaBuilder();
 			CriteriaQuery<Long> criteria = builder.createQuery(Long.class);
-			Root<? extends BaseResourceEntity> from = criteria.from(getResourceTable());
+			Root<? extends BaseResourceEntity> from = criteria.from(getResourceEntity());
 			criteria.select(from.get("id").as(Long.class));
 			List<Long> resultList = myEntityManager.createQuery(criteria).getResultList();
 			loadPids = new HashSet<Long>(resultList);
@@ -336,7 +337,41 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 								for (Include next : theParams.getIncludes()) {
 									for (IBaseResource nextResource : resources) {
 										RuntimeResourceDefinition def = baseFhirDao.getContext().getResourceDefinition(nextResource);
-										List<Object> values = getIncludeValues(t, next, nextResource, def);
+										List<Object> values = null;
+										switch (baseFhirDao.getContext().getVersion().getVersion()) {
+										case DSTU1:
+											if ("*".equals(next.getValue())) {
+												values = new ArrayList<Object>();
+												values.addAll(t.getAllPopulatedChildElementsOfType(nextResource, BaseResourceReferenceDt.class));
+											} else if (next.getValue().startsWith(def.getName() + ".")) {
+												values = t.getValues(nextResource, next.getValue());
+											} else {
+												values = Collections.emptyList();
+											}
+											break;
+										case DSTU2:
+											if ("*".equals(next.getValue())) {
+												values = new ArrayList<Object>();
+												values.addAll(t.getAllPopulatedChildElementsOfType(nextResource, BaseResourceReferenceDt.class));
+											} else if (next.getValue().startsWith(def.getName() + ":")) {
+												values = new ArrayList<Object>();
+												RuntimeSearchParam sp = def.getSearchParam(next.getValue().substring(next.getValue().indexOf(':')+1));
+												for (String nextPath : sp.getPathsSplit()) {
+													values.addAll(t.getValues(nextResource, nextPath));
+												}
+											} else {
+												values = Collections.emptyList();
+											}
+											break;
+										case DEV:
+											break;
+										case DSTU2_HL7ORG:
+											break;
+										default:
+											break;
+										}
+										if(values == null)
+											throw new IllegalStateException("Support for Search not provided for Version: " + baseFhirDao.getContext().getVersion().getVersion());
 
 										for (Object object : values) {
 											if (object == null) {
@@ -525,24 +560,6 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 
 		return pids;
 	}
-
-	
-	protected List<Object> getIncludeValues(FhirTerser theTerser, Include theInclude, IBaseResource theResource, RuntimeResourceDefinition theResourceDef) {
-		List<Object> values;
-		if ("*".equals(theInclude.getValue())) {
-			values = new ArrayList<Object>();
-			values.addAll(theTerser.getAllPopulatedChildElementsOfType(theResource, BaseResourceReferenceDt.class));
-		} else if (theInclude.getValue().startsWith(theResourceDef.getName() + ":")) {
-			values = new ArrayList<Object>();
-			RuntimeSearchParam sp = theResourceDef.getSearchParam(theInclude.getValue().substring(theInclude.getValue().indexOf(':')+1));
-			for (String nextPath : sp.getPathsSplit()) {
-				values.addAll(theTerser.getValues(theResource, nextPath));
-			}
-		} else {
-			values = Collections.emptyList();
-		}
-		return values;
-	}
 	
 	private void loadResourcesByPid(Collection<Long> theIncludePids, List<IBaseResource> theResourceListToPopulate, BundleEntrySearchModeEnum theBundleEntryStatus) {
 		if (theIncludePids.isEmpty()) {
@@ -557,9 +574,9 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 
 		CriteriaBuilder builder = myEntityManager.getCriteriaBuilder();
 		@SuppressWarnings("unchecked")
-		CriteriaQuery<BaseResourceEntity> cq = (CriteriaQuery<BaseResourceEntity>) builder.createQuery(getResourceTable());
+		CriteriaQuery<BaseResourceEntity> cq = (CriteriaQuery<BaseResourceEntity>) builder.createQuery(getResourceEntity());
 		@SuppressWarnings("unchecked")
-		Root<BaseResourceEntity> from = (Root<BaseResourceEntity>) cq.from(getResourceTable());
+		Root<BaseResourceEntity> from = (Root<BaseResourceEntity>) cq.from(getResourceEntity());
 		cq.select(from);
 		cq.where(from.get("id").in(theIncludePids));
 		TypedQuery<BaseResourceEntity> q = myEntityManager.createQuery(cq);
@@ -594,8 +611,8 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 			}
 			
 			CriteriaBuilder builder = baseFhirDao.getEntityManager().getCriteriaBuilder();
-			CriteriaQuery<? extends BaseResourceEntity> cq = builder.createQuery(myResourceTable);
-			Root<? extends BaseResourceEntity> from = cq.from(myResourceTable);
+			CriteriaQuery<? extends BaseResourceEntity> cq = builder.createQuery(myResourceEntity);
+			Root<? extends BaseResourceEntity> from = cq.from(myResourceEntity);
 			cq.where(from.get("id").in(pids));
 			TypedQuery<? extends BaseResourceEntity> q = baseFhirDao.getEntityManager().createQuery(cq); 
 
@@ -627,7 +644,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 
 		CriteriaBuilder builder = myEntityManager.getCriteriaBuilder();
 		CriteriaQuery<Long> cq = builder.createQuery(Long.class);
-		Root<? extends BaseResourceEntity> from = cq.from(getResourceTable());
+		Root<? extends BaseResourceEntity> from = cq.from(getResourceEntity());
 		cq.select(from.get("id").as(Long.class)); 
 		Predicate idPrecidate = from.get("id").in(thePids);
 		cq.where(idPrecidate);
@@ -651,7 +668,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 
 		CriteriaBuilder builder = myEntityManager.getCriteriaBuilder();
 		CriteriaQuery<Long> cq = builder.createQuery(Long.class);
-		Root<? extends BaseResourceEntity> from = cq.from(getResourceTable());
+		Root<? extends BaseResourceEntity> from = cq.from(getResourceEntity());
 		cq.select(from.get("id").as(Long.class));
 		
 //		Root<ResourceIndexedSearchParamDate> from = cq.from(ResourceIndexedSearchParamDate.class);
@@ -684,7 +701,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 		return new HashSet<Long>(q.getResultList());
 	}
 	
-	protected Predicate createPredicateDate(CriteriaBuilder theBuilder, Root<? extends IResourceTable> from, String theParamName, IQueryParameterType theParam) {
+	protected Predicate createPredicateDate(CriteriaBuilder theBuilder, Root<? extends IResourceEntity> from, String theParamName, IQueryParameterType theParam) {
 		Predicate p;
 		if (theParam instanceof DateParam) {
 			DateParam date = (DateParam) theParam;
@@ -704,7 +721,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 		return p;
 	}
 	
-	protected Predicate createPredicateDateFromRange(CriteriaBuilder theBuilder, Root<? extends IResourceTable> from, DateRangeParam theRange, String theParamName, IQueryParameterType theParam) {
+	protected Predicate createPredicateDateFromRange(CriteriaBuilder theBuilder, Root<? extends IResourceEntity> from, DateRangeParam theRange, String theParamName, IQueryParameterType theParam) {
 		Date lowerBound = theRange.getLowerBoundAsInstant();
 		Date upperBound = theRange.getUpperBoundAsInstant();
 
@@ -763,9 +780,10 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 		return singleCode;
 	}
 	
-	public abstract Predicate translatePredicateString(String theParamName, String likeExpression, Root<? extends IResourceTable> from, CriteriaBuilder theBuilder);
-	public abstract Predicate translatePredicateDateLessThan(String theParamName, Date upperBound, Root<? extends IResourceTable> from, CriteriaBuilder theBuilder);
-	public abstract Predicate translatePredicateDateGreaterThan(String theParamName, Date lowerBound, Root<? extends IResourceTable> from, CriteriaBuilder theBuilder);
+	//THese vary according to each entity and its attributes (search params)
+	public abstract Predicate translatePredicateString(String theParamName, String likeExpression, Root<? extends IResourceEntity> from, CriteriaBuilder theBuilder);
+	public abstract Predicate translatePredicateDateLessThan(String theParamName, Date upperBound, Root<? extends IResourceEntity> from, CriteriaBuilder theBuilder);
+	public abstract Predicate translatePredicateDateGreaterThan(String theParamName, Date lowerBound, Root<? extends IResourceEntity> from, CriteriaBuilder theBuilder);
 	
 	private Set<Long> addPredicateString(String theParamName, Set<Long> thePids, List<? extends IQueryParameterType> theList) {
 		if (theList == null || theList.isEmpty()) {
@@ -779,7 +797,7 @@ public abstract class BaseFhirResourceDao<T extends IResource> implements IFhirR
 
 		CriteriaBuilder builder = myEntityManager.getCriteriaBuilder();
 		CriteriaQuery<Long> cq = builder.createQuery(Long.class);
-		Root<? extends BaseResourceEntity> from = cq.from(getResourceTable());
+		Root<? extends BaseResourceEntity> from = cq.from(getResourceEntity());
 		cq.select(from.get("id").as(Long.class));
 
 		List<Predicate> codePredicates = new ArrayList<Predicate>();

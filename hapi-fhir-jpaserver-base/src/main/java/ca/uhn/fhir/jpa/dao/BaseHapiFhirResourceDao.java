@@ -20,7 +20,8 @@ package ca.uhn.fhir.jpa.dao;
  * #L%
  */
 
-import static org.apache.commons.lang3.StringUtils.*;
+import static org.apache.commons.lang3.StringUtils.isBlank;
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -101,6 +102,8 @@ import ca.uhn.fhir.model.dstu.valueset.IssueSeverityEnum;
 import ca.uhn.fhir.model.dstu.valueset.QuantityCompararatorEnum;
 import ca.uhn.fhir.model.dstu2.composite.CodingDt;
 import ca.uhn.fhir.model.dstu2.composite.MetaDt;
+import ca.uhn.fhir.model.dstu2.resource.Bundle;
+import ca.uhn.fhir.model.dstu2.valueset.BundleTypeEnum;
 import ca.uhn.fhir.model.primitive.IdDt;
 import ca.uhn.fhir.model.primitive.InstantDt;
 import ca.uhn.fhir.model.primitive.UriDt;
@@ -130,7 +133,7 @@ import ca.uhn.fhir.util.ObjectUtil;
 @Transactional(propagation = Propagation.REQUIRED)
 public abstract class BaseHapiFhirResourceDao<T extends IResource> extends BaseFhirResourceDao<T>{
 
-	private static final org.slf4j.Logger ourLog = org.slf4j.LoggerFactory.getLogger(BaseFhirResourceDao.class);
+	private static final org.slf4j.Logger ourLog = org.slf4j.LoggerFactory.getLogger(BaseHapiFhirResourceDao.class);
 	
 	private BaseHapiFhirDao baseFhirDao;
 
@@ -143,6 +146,8 @@ public abstract class BaseHapiFhirResourceDao<T extends IResource> extends BaseF
 	private String myResourceName;
 	private Class<T> myResourceType;
 	private String mySecondaryPrimaryKeyParamName;
+
+	private boolean createBundle;
 	
 	public BaseHapiFhirResourceDao() {
 		super();
@@ -1156,12 +1161,16 @@ public abstract class BaseHapiFhirResourceDao<T extends IResource> extends BaseF
 		return outcome;
 	}
 
-	/**
-	 * May 
-	 * @param theResource The resource that is about to be stored
-	 */
-	protected void preProcessResourceForStorage(T theResource) {
-		// nothing by default
+	private void preProcessResourceForStorage(T theResource) {
+		if(baseFhirDao.getContext().getVersion().getVersion() == FhirVersionEnum.DSTU2 && createBundle){
+			Bundle bundle = (Bundle)theResource;
+			if (bundle.getTypeElement().getValueAsEnum() != BundleTypeEnum.DOCUMENT) {
+				String message = "Unable to store a Bundle resource on this server with a Bundle.type value other than '" + BundleTypeEnum.DOCUMENT.getCode() + "' - Value was: " + (bundle.getTypeElement().getValueAsEnum() != null ? bundle.getTypeElement().getValueAsEnum().getCode() : "(missing)");
+				throw new UnprocessableEntityException(message);
+			}
+			
+			bundle.setBase((UriDt)null);
+		}
 	}
 
 	@Override
@@ -1172,7 +1181,6 @@ public abstract class BaseHapiFhirResourceDao<T extends IResource> extends BaseF
 		return tags;
 	}
 
-	protected abstract List<Object> getIncludeValues(FhirTerser theTerser, Include theInclude, IBaseResource theResource, RuntimeResourceDefinition theResourceDef);
 
 	public Class<T> getResourceType() {
 		return myResourceType;
@@ -1203,7 +1211,7 @@ public abstract class BaseHapiFhirResourceDao<T extends IResource> extends BaseF
 		try {
 			BaseHasResource entity = readEntity(theId.toVersionless(), false);
 			validateResourceType(entity);
-			currentTmp = baseFhirDao.toResource(myResourceType, entity);
+			currentTmp = (T) ResourceTransformer.toResource(entity);
 			if (ResourceMetadataKeyEnum.UPDATED.get(currentTmp).after(end.getValue())) {
 				currentTmp = null;
 			}
@@ -1273,7 +1281,7 @@ public abstract class BaseHapiFhirResourceDao<T extends IResource> extends BaseF
 					if (retVal.size() == maxResults) {
 						break;
 					}
-					retVal.add(baseFhirDao.toResource(myResourceType, next));
+					retVal.add(ResourceTransformer.toResource(next));
 				}
 
 				return retVal;
@@ -1318,8 +1326,8 @@ public abstract class BaseHapiFhirResourceDao<T extends IResource> extends BaseF
 		TypedQuery<ResourceTable> q = myEntityManager.createQuery(cq);
 
 		for (ResourceTable next : q.getResultList()) {
-			Class<? extends IBaseResource> resourceType = baseFhirDao.getContext().getResourceDefinition(next.getResourceType()).getImplementingClass();
-			IResource resource = (IResource) baseFhirDao.toResource(resourceType, next);
+//			Class<? extends IBaseResource> resourceType = baseFhirDao.getContext().getResourceDefinition(next.getResourceType()).getImplementingClass();
+			IResource resource = (IResource) ResourceTransformer.toResource(next);
 			Integer index = position.get(next.getId());
 			if (index == null) {
 				ourLog.warn("Got back unexpected resource PID {}", next.getId());
@@ -1511,7 +1519,7 @@ public abstract class BaseHapiFhirResourceDao<T extends IResource> extends BaseF
 		BaseHasResource entity = readEntity(theId);
 		validateResourceType(entity);
 
-		T retVal = baseFhirDao.toResource(myResourceType, entity);
+		T retVal = (T) ResourceTransformer.toResource( entity);
 
 		InstantDt deleted = ResourceMetadataKeyEnum.DELETED_AT.get(retVal);
 		if (deleted != null && !deleted.isEmpty()) {
@@ -1747,7 +1755,41 @@ public abstract class BaseHapiFhirResourceDao<T extends IResource> extends BaseF
 								for (Include next : theParams.getIncludes()) {
 									for (IBaseResource nextResource : resources) {
 										RuntimeResourceDefinition def = baseFhirDao.getContext().getResourceDefinition(nextResource);
-										List<Object> values = getIncludeValues(t, next, nextResource, def);
+										List<Object> values = null;
+										switch (baseFhirDao.getContext().getVersion().getVersion()) {
+										case DSTU1:
+											if ("*".equals(next.getValue())) {
+												values = new ArrayList<Object>();
+												values.addAll(t.getAllPopulatedChildElementsOfType(nextResource, BaseResourceReferenceDt.class));
+											} else if (next.getValue().startsWith(def.getName() + ".")) {
+												values = t.getValues(nextResource, next.getValue());
+											} else {
+												values = Collections.emptyList();
+											}
+											break;
+										case DSTU2:
+											if ("*".equals(next.getValue())) {
+												values = new ArrayList<Object>();
+												values.addAll(t.getAllPopulatedChildElementsOfType(nextResource, BaseResourceReferenceDt.class));
+											} else if (next.getValue().startsWith(def.getName() + ":")) {
+												values = new ArrayList<Object>();
+												RuntimeSearchParam sp = def.getSearchParam(next.getValue().substring(next.getValue().indexOf(':')+1));
+												for (String nextPath : sp.getPathsSplit()) {
+													values.addAll(t.getValues(nextResource, nextPath));
+												}
+											} else {
+												values = Collections.emptyList();
+											}
+											break;
+										case DEV:
+											break;
+										case DSTU2_HL7ORG:
+											break;
+										default:
+											break;
+										}
+										if(values == null)
+											throw new IllegalStateException("Support for Search not provided for Version: " + baseFhirDao.getContext().getVersion().getVersion());
 
 										for (Object object : values) {
 											if (object == null) {

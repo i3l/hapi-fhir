@@ -20,7 +20,8 @@ package ca.uhn.fhir.jpa.dao;
  * #L%
  */
 
-import static org.apache.commons.lang3.StringUtils.*;
+import static org.apache.commons.lang3.StringUtils.isBlank;
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 import java.util.Date;
 import java.util.HashMap;
@@ -32,7 +33,6 @@ import java.util.Set;
 import javax.persistence.TypedQuery;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
-import org.springframework.jmx.access.InvalidInvocationException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,7 +64,7 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 	private String extractTransactionUrlOrThrowException(Entry nextEntry, HTTPVerbEnum verb) {
 		String url = nextEntry.getTransaction().getUrl();
 		if (isBlank(url)) {
-			throw new InvalidRequestException(getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionMissingUrl", verb.name()));
+			throw new InvalidRequestException(getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionMissingUrl", verb.name()));
 		}
 		return url;
 	}
@@ -76,7 +76,7 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 		TypedQuery<TagDefinition> q = myEntityManager.createQuery(sql, TagDefinition.class);
 		List<TagDefinition> tagDefinitions = q.getResultList();
 
-		MetaDt retVal = super.toMetaDt(tagDefinitions);
+		MetaDt retVal = getBaseFhirDao().toMetaDt(tagDefinitions);
 
 		return retVal;
 	}
@@ -111,7 +111,7 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 					if (nextSubstring.equals(Constants.URL_TOKEN_HISTORY)) {
 						nextIsHistory = true;
 					} else {
-						String msg = getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionInvalidUrl", theAction, theUrl);
+						String msg = getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionInvalidUrl", theAction, theUrl);
 						throw new InvalidRequestException(msg);
 					}
 				}
@@ -127,23 +127,23 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 
 		RuntimeResourceDefinition resType;
 		try {
-			resType = getContext().getResourceDefinition(retVal.getResourceType());
+			resType = getBaseFhirDao().getContext().getResourceDefinition(retVal.getResourceType());
 		} catch (DataFormatException e) {
-			String msg = getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionInvalidUrl", theAction, theUrl);
+			String msg = getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionInvalidUrl", theAction, theUrl);
 			throw new InvalidRequestException(msg);
 		}
 		IFhirResourceDao<? extends IResource> dao = null;
 		if (resType != null) {
-			dao = getDao(resType.getImplementingClass());
+			dao = getBaseFhirDao().getDao(resType.getImplementingClass());
 		}
 		if (dao == null) {
-			String msg = getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionInvalidUrl", theAction, theUrl);
+			String msg = getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionInvalidUrl", theAction, theUrl);
 			throw new InvalidRequestException(msg);
 		}
 		retVal.setDao(dao);
 
 		if (retVal.getResourceId() == null && retVal.getParams() == null) {
-			String msg = getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionInvalidUrl", theAction, theUrl);
+			String msg = getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionInvalidUrl", theAction, theUrl);
 			throw new InvalidRequestException(msg);
 		}
 
@@ -173,7 +173,7 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 
 				nextResourceId = res.getId();
 				if (nextResourceId.hasIdPart() && !nextResourceId.hasResourceType() && !isPlaceholder(nextResourceId)) {
-					nextResourceId = new IdDt(toResourceName(res.getClass()), nextResourceId.getIdPart());
+					nextResourceId = new IdDt(getBaseFhirDao().toResourceName(res.getClass()), nextResourceId.getIdPart());
 					res.setId(nextResourceId);
 				}
 
@@ -182,12 +182,12 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 				 */
 				if (isPlaceholder(nextResourceId)) {
 					if (!allIds.add(nextResourceId)) {
-						throw new InvalidRequestException(getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionContainsMultipleWithDuplicateId", nextResourceId));
+						throw new InvalidRequestException(getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionContainsMultipleWithDuplicateId", nextResourceId));
 					}
 				} else if (nextResourceId.hasResourceType() && nextResourceId.hasIdPart()) {
 					IdDt nextId = nextResourceId.toUnqualifiedVersionless();
 					if (!allIds.add(nextId)) {
-						throw new InvalidRequestException(getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionContainsMultipleWithDuplicateId", nextId));
+						throw new InvalidRequestException(getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionContainsMultipleWithDuplicateId", nextId));
 					}
 				}
 
@@ -195,16 +195,16 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 
 			HTTPVerbEnum verb = nextEntry.getTransaction().getMethodElement().getValueAsEnum();
 			if (verb == null) {
-				throw new InvalidRequestException(getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionEntryHasInvalidVerb", nextEntry.getTransaction().getMethod()));
+				throw new InvalidRequestException(getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionEntryHasInvalidVerb", nextEntry.getTransaction().getMethod()));
 			}
 
-			String resourceType = res != null ? getContext().getResourceDefinition(res).getName() : null;
+			String resourceType = res != null ? getBaseFhirDao().getContext().getResourceDefinition(res).getName() : null;
 
 			switch (verb) {
 			case POST: {
 				// CREATE
 				@SuppressWarnings("rawtypes")
-				IFhirResourceDao resourceDao = getDao(res.getClass());
+				IFhirResourceDao resourceDao = getBaseFhirDao().getDao(res.getClass());
 				res.setId((String) null);
 				DaoMethodOutcome outcome;
 				Entry newEntry = response.addEntry();
@@ -229,7 +229,7 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 			case PUT: {
 				// UPDATE
 				@SuppressWarnings("rawtypes")
-				IFhirResourceDao resourceDao = getDao(res.getClass());
+				IFhirResourceDao resourceDao = getBaseFhirDao().getDao(res.getClass());
 
 				DaoMethodOutcome outcome;
 				Entry newEntry = response.addEntry();
@@ -288,8 +288,8 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 						resp.setStatus(Integer.toString(Constants.STATUS_HTTP_304_NOT_MODIFIED));
 					}
 				} else if (parts.getParams() != null) {
-					RuntimeResourceDefinition def = getContext().getResourceDefinition(parts.getDao().getResourceType());
-					SearchParameterMap params = translateMatchUrl(url, def);
+					RuntimeResourceDefinition def = getBaseFhirDao().getContext().getResourceDefinition(parts.getDao().getResourceType());
+					SearchParameterMap params = BaseFhirDao.translateMatchUrl(url, def);
 					IBundleProvider bundle = parts.getDao().search(params);
 
 					Bundle searchBundle = new Bundle();
@@ -314,7 +314,7 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 
 		}
 
-		FhirTerser terser = getContext().newTerser();
+		FhirTerser terser = getBaseFhirDao().getContext().newTerser();
 
 		for (DaoMethodOutcome nextOutcome : idToPersistedOutcome.values()) {
 			IResource nextResource = nextOutcome.getResource();
@@ -336,7 +336,7 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 
 			InstantDt deletedInstantOrNull = ResourceMetadataKeyEnum.DELETED_AT.get(nextResource);
 			Date deletedTimestampOrNull = deletedInstantOrNull != null ? deletedInstantOrNull.getValue() : null;
-			updateEntity(nextResource, nextOutcome.getEntity(), false, deletedTimestampOrNull, true, false);
+			getBaseFhirDao().updateEntity(nextResource, nextOutcome.getEntity(), false, deletedTimestampOrNull, true, false);
 		}
 
 		long delay = System.currentTimeMillis() - start;
@@ -355,7 +355,7 @@ public class FhirSystemDaoDstu2 extends BaseFhirSystemDao<Bundle> {
 			oo.addIssue().setSeverity(IssueSeverityEnum.INFORMATION).setDetails("Placeholder resource ID \"" + next + "\" was replaced with permanent ID \"" + replacement + "\"");
 		}
 
-		notifyWriteCompleted();
+		getBaseFhirDao().notifyWriteCompleted();
 
 		response.setType(BundleTypeEnum.TRANSACTION_RESPONSE);
 		return response;

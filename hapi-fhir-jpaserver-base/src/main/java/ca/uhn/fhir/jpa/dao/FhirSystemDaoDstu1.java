@@ -56,7 +56,7 @@ public class FhirSystemDaoDstu1 extends BaseFhirSystemDao<List<IResource>> {
 	}
 
 	@Transactional(propagation = Propagation.REQUIRED)
-	@Override
+	@Override //TODO this is specific for Hapi, must be generalized
 	public List<IResource> transaction(List<IResource> theResources) {
 		ourLog.info("Beginning transaction with {} resources", theResources.size());
 		long start = System.currentTimeMillis();
@@ -66,7 +66,7 @@ public class FhirSystemDaoDstu1 extends BaseFhirSystemDao<List<IResource>> {
 		for (int i = 0; i < theResources.size(); i++) {
 			IResource res = theResources.get(i);
 			if (res.getId().hasIdPart() && !res.getId().hasResourceType() && !isPlaceholder(res.getId())) {
-				res.setId(new IdDt(toResourceName(res.getClass()), res.getId().getIdPart()));
+				res.setId(new IdDt(getBaseFhirDao().toResourceName(res.getClass()), res.getId().getIdPart()));
 			}
 
 			/*
@@ -84,7 +84,7 @@ public class FhirSystemDaoDstu1 extends BaseFhirSystemDao<List<IResource>> {
 			}
 		}
 
-		FhirTerser terser = getContext().newTerser();
+		FhirTerser terser = getBaseFhirDao().getContext().newTerser();
 
 		int creations = 0;
 		int updates = 0;
@@ -105,7 +105,7 @@ public class FhirSystemDaoDstu1 extends BaseFhirSystemDao<List<IResource>> {
 				nextId = new IdDt();
 			}
 
-			String resourceName = toResourceName(nextResource);
+			String resourceName = getBaseFhirDao().toResourceName(nextResource);
 			BundleEntryTransactionMethodEnum nextResouceOperationIn = ResourceMetadataKeyEnum.ENTRY_TRANSACTION_METHOD.get(nextResource);
 			if (nextResouceOperationIn == null && hasValue(ResourceMetadataKeyEnum.DELETED_AT.get(nextResource))) {
 				nextResouceOperationIn = BundleEntryTransactionMethodEnum.DELETE;
@@ -114,23 +114,23 @@ public class FhirSystemDaoDstu1 extends BaseFhirSystemDao<List<IResource>> {
 			String matchUrl = ResourceMetadataKeyEnum.LINK_SEARCH.get(nextResource);
 			Set<Long> candidateMatches = null;
 			if (StringUtils.isNotBlank(matchUrl)) {
-				candidateMatches = processMatchUrl(matchUrl, nextResource.getClass());
+				candidateMatches = getBaseFhirDao().processMatchUrl(matchUrl, nextResource.getClass());
 			}
 
-			ResourceTable entity;
+			ResourceTable entity = null;
 			if (nextResouceOperationIn == BundleEntryTransactionMethodEnum.POST) {
 				entity = null;
 			} else if (nextResouceOperationIn == BundleEntryTransactionMethodEnum.PUT || nextResouceOperationIn == BundleEntryTransactionMethodEnum.DELETE) {
 				if (candidateMatches == null || candidateMatches.size() == 0) {
 					if (nextId == null || StringUtils.isBlank(nextId.getIdPart())) {
-						throw new InvalidRequestException(getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionOperationFailedNoId", nextResouceOperationIn.name()));
+						throw new InvalidRequestException(getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionOperationFailedNoId", nextResouceOperationIn.name()));
 					}
-					entity = tryToLoadEntity(nextId);
+//					entity = tryToLoadEntity(nextId);//FIXME this method uses forced id and resource table
 					if (entity == null) {
 						if (nextResouceOperationIn == BundleEntryTransactionMethodEnum.PUT) {
 							ourLog.debug("Attempting to UPDATE resource with unknown ID '{}', will CREATE instead", nextId);
 						} else if (candidateMatches == null) {
-							throw new InvalidRequestException(getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionOperationFailedUnknownId", nextResouceOperationIn.name(), nextId));
+							throw new InvalidRequestException(getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionOperationFailedUnknownId", nextResouceOperationIn.name(), nextId));
 						} else {
 							ourLog.debug("Resource with match URL [{}] already exists, will be NOOP", matchUrl);
 							persistedResources.add(null);
@@ -139,20 +139,20 @@ public class FhirSystemDaoDstu1 extends BaseFhirSystemDao<List<IResource>> {
 						}
 					}
 				} else if (candidateMatches.size() == 1) {
-					entity = loadFirstEntityFromCandidateMatches(candidateMatches);
+					entity = (ResourceTable) loadFirstEntityFromCandidateMatches(candidateMatches);
 				} else {
-					throw new InvalidRequestException(getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionOperationWithMultipleMatchFailure", nextResouceOperationIn.name(), matchUrl, candidateMatches.size()));
+					throw new InvalidRequestException(getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionOperationWithMultipleMatchFailure", nextResouceOperationIn.name(), matchUrl, candidateMatches.size()));
 				}
 			} else if (nextId.isEmpty() || isPlaceholder(nextId)) {
 				entity = null;
 			} else {
-				entity = tryToLoadEntity(nextId);
+				//entity = tryToLoadEntity(nextId); //FIXME this method uses forced id and resource table
 			}
 
 			BundleEntryTransactionMethodEnum nextResouceOperationOut;
 			if (entity == null) {
 				nextResouceOperationOut = BundleEntryTransactionMethodEnum.POST;
-				entity = toEntity(nextResource);
+//				entity = toEntity(nextResource); //FIXME this method uses forced id and resource table
 				if (nextId.isEmpty() == false && "cid:".equals(nextId.getBaseUrl())) {
 					ourLog.debug("Resource in transaction has ID[{}], will replace with server assigned ID", nextId.getIdPart());
 				} else if (nextResouceOperationIn == BundleEntryTransactionMethodEnum.POST) {
@@ -162,18 +162,18 @@ public class FhirSystemDaoDstu1 extends BaseFhirSystemDao<List<IResource>> {
 					if (candidateMatches != null) {
 						if (candidateMatches.size() == 1) {
 							ourLog.debug("Resource with match URL [{}] already exists, will be NOOP", matchUrl);
-							BaseHasResource existingEntity = loadFirstEntityFromCandidateMatches(candidateMatches);
-							IResource existing = (IResource) toResource(existingEntity);
+							BaseHasResource existingEntity = (BaseHasResource) loadFirstEntityFromCandidateMatches(candidateMatches);
+							IResource existing = (IResource) ResourceTransformer.toResource(existingEntity);
 							persistedResources.add(null);
 							retVal.add(existing);
 							continue;
 						}
 						if (candidateMatches.size() > 1) {
-							throw new InvalidRequestException(getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionOperationWithMultipleMatchFailure", BundleEntryTransactionMethodEnum.POST.name(), matchUrl, candidateMatches.size()));
+							throw new InvalidRequestException(getBaseFhirDao().getContext().getLocalizer().getMessage(BaseFhirSystemDao.class, "transactionOperationWithMultipleMatchFailure", BundleEntryTransactionMethodEnum.POST.name(), matchUrl, candidateMatches.size()));
 						}
 					}
 				} else {
-					createForcedIdIfNeeded(entity, nextId);
+					//createForcedIdIfNeeded(entity, nextId); //FIXME specific of HapiFhir
 				}
 				myEntityManager.persist(entity);
 				if (entity.getForcedId() != null) {
@@ -201,7 +201,7 @@ public class FhirSystemDaoDstu1 extends BaseFhirSystemDao<List<IResource>> {
 		for (int i = 0; i < persistedResources.size(); i++) {
 			ResourceTable entity = persistedResources.get(i);
 
-			String resourceName = toResourceName(theResources.get(i));
+			String resourceName = getBaseFhirDao().toResourceName(theResources.get(i));
 			IdDt nextId = theResources.get(i).getId();
 
 			IdDt newId;
@@ -259,7 +259,7 @@ public class FhirSystemDaoDstu1 extends BaseFhirSystemDao<List<IResource>> {
 				ResourceMetadataKeyEnum.DELETED_AT.put(resource, new InstantDt(deletedTimestampOrNull));
 			}
 
-			updateEntity(resource, table, table.getId() != null, deletedTimestampOrNull);
+			getBaseFhirDao().updateEntity(resource, table, table.getId() != null, deletedTimestampOrNull);
 		}
 
 		long delay = System.currentTimeMillis() - start;
@@ -267,7 +267,7 @@ public class FhirSystemDaoDstu1 extends BaseFhirSystemDao<List<IResource>> {
 
 		oo.addIssue().setSeverity(IssueSeverityEnum.INFORMATION).setDetails("Transaction completed in " + delay + "ms with " + creations + " creations and " + updates + " updates");
 
-		notifyWriteCompleted();
+		getBaseFhirDao().notifyWriteCompleted();
 
 		return retVal;
 	}

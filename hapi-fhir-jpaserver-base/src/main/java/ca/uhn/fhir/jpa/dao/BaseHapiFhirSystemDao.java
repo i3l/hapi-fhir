@@ -20,7 +20,6 @@ package ca.uhn.fhir.jpa.dao;
  * #L%
  */
 
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -31,15 +30,8 @@ import javax.persistence.criteria.CriteriaBuilder;
 import javax.persistence.criteria.CriteriaQuery;
 import javax.persistence.criteria.Root;
 
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
-
 import ca.uhn.fhir.jpa.entity.ResourceTable;
-import ca.uhn.fhir.jpa.util.StopWatch;
-import ca.uhn.fhir.model.api.TagList;
 import ca.uhn.fhir.model.primitive.IdDt;
-import ca.uhn.fhir.model.primitive.InstantDt;
-import ca.uhn.fhir.rest.server.IBundleProvider;
 import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
 
 public abstract class BaseHapiFhirSystemDao<T> extends BaseFhirSystemDao<T> {
@@ -52,16 +44,6 @@ public abstract class BaseHapiFhirSystemDao<T> extends BaseFhirSystemDao<T> {
 		this.baseFhirDao = new BaseHapiFhirDao();
 		super.setBaseFhirDao(baseFhirDao);
 	}
-	
-	@Transactional(propagation=Propagation.REQUIRED)
-	@Override
-	public void deleteAllTagsOnServer() {
-		myEntityManager.createQuery("DELETE from ResourceTag t").executeUpdate();
-	}
-
-	protected boolean hasValue(InstantDt theInstantDt) {
-		return theInstantDt != null && theInstantDt.isEmpty() == false;
-	}
 
 	protected ResourceTable tryToLoadEntity(IdDt nextId) {
 		ResourceTable entity;
@@ -72,26 +54,6 @@ public abstract class BaseHapiFhirSystemDao<T> extends BaseFhirSystemDao<T> {
 			entity = null;
 		}
 		return entity;
-	}
-
-	protected ResourceTable loadFirstEntityFromCandidateMatches(Set<Long> candidateMatches) {
-		return myEntityManager.find(ResourceTable.class, candidateMatches.iterator().next());
-	}
-
-	@Override
-	public IBundleProvider history(Date theSince) {
-		StopWatch w = new StopWatch();
-		IBundleProvider retVal = baseFhirDao.history(null, null, theSince);
-		ourLog.info("Processed global history in {}ms", w.getMillisAndRestart());
-		return retVal;
-	}
-
-	@Override
-	public TagList getAllTags() {
-		StopWatch w = new StopWatch();
-		TagList retVal = baseFhirDao.getTags(null, null);
-		ourLog.info("Processed getAllTags in {}ms", w.getMillisAndRestart());
-		return retVal;
 	}
 
 	@Override

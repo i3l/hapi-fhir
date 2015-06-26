@@ -37,6 +37,7 @@ import javax.persistence.UniqueConstraint;
 
 import org.hibernate.annotations.Index;
 
+import ca.uhn.fhir.model.api.IResource;
 import ca.uhn.fhir.model.primitive.IdDt;
 import ca.uhn.fhir.rest.server.Constants;
 

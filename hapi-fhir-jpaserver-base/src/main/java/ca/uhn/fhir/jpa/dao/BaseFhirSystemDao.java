@@ -1,5 +1,6 @@
 package ca.uhn.fhir.jpa.dao;
 
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -9,13 +10,20 @@ import javax.persistence.PersistenceContext;
 import javax.persistence.criteria.CriteriaBuilder;
 import javax.persistence.criteria.CriteriaQuery;
 
+import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.type.filter.AssignableTypeFilter;
 import org.springframework.core.type.filter.TypeFilter;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
-import ca.uhn.fhir.jpa.entity.IResourceTable;
-import ca.uhn.fhir.model.api.IResource;
+import ca.uhn.fhir.jpa.entity.BaseResourceEntity;
+import ca.uhn.fhir.jpa.entity.IResourceEntity;
+import ca.uhn.fhir.jpa.util.StopWatch;
+import ca.uhn.fhir.model.api.TagList;
+import ca.uhn.fhir.model.primitive.InstantDt;
+import ca.uhn.fhir.rest.server.IBundleProvider;
 
 public abstract class BaseFhirSystemDao<T> implements IFhirSystemDao<T> {
 	private static final org.slf4j.Logger ourLog = org.slf4j.LoggerFactory.getLogger(BaseFhirSystemDao.class);
@@ -33,6 +41,44 @@ public abstract class BaseFhirSystemDao<T> implements IFhirSystemDao<T> {
 		this.baseFhirDao = baseFhirDao;
 	}
 	
+
+	@Override
+	public IBundleProvider history(Date theSince) {
+		StopWatch w = new StopWatch();
+		IBundleProvider retVal = baseFhirDao.history(null, null, theSince);
+		ourLog.info("Processed global history in {}ms", w.getMillisAndRestart());
+		return retVal;
+	}
+
+	@Override
+	public TagList getAllTags() {
+		StopWatch w = new StopWatch();
+		TagList retVal = baseFhirDao.getTags(null, null);
+		ourLog.info("Processed getAllTags in {}ms", w.getMillisAndRestart());
+		return retVal;
+	}
+	
+	@Transactional(propagation=Propagation.REQUIRED)
+	@Override
+	public void deleteAllTagsOnServer() {
+		//TODO
+//		myEntityManager.createQuery("DELETE from ResourceTag t").executeUpdate();
+	}
+	
+	@Override
+	public void registerDaoListener(IDaoListener theListener) {
+		baseFhirDao.registerDaoListener(theListener);
+	}
+	
+	protected boolean hasValue(InstantDt theInstantDt) {
+		return theInstantDt != null && theInstantDt.isEmpty() == false;
+	}
+	
+
+	protected BaseResourceEntity loadFirstEntityFromCandidateMatches(Set<Long> candidateMatches) {
+		return myEntityManager.find(BaseResourceEntity.class, candidateMatches.iterator().next());//FIXME this should be specific resource type class
+	}
+
 	/**
 	 * @return A map with the provided resource types and how many registries are stored in the database for each resource.
 	 */
@@ -41,7 +87,7 @@ public abstract class BaseFhirSystemDao<T> implements IFhirSystemDao<T> {
 		Map<String, Long> retVal = new HashMap<String, Long>();
 
 		ClassPathScanningCandidateComponentProvider cpsccp = new ClassPathScanningCandidateComponentProvider(true); 
-		TypeFilter filter = new AssignableTypeFilter(IResourceTable.class);
+		TypeFilter filter = new AssignableTypeFilter(IResourceEntity.class);
 		cpsccp.addIncludeFilter(filter );
 		Set<BeanDefinition> beans = cpsccp.findCandidateComponents(myEntitiesPackage);
 
@@ -50,8 +96,8 @@ public abstract class BaseFhirSystemDao<T> implements IFhirSystemDao<T> {
 			String className = beanDefinition.getBeanClassName();
 			try {
 				Class<?> defClass = Class.forName(className);
-				IResourceTable resEntity = (IResourceTable) defClass.newInstance();
-				Class<? extends IResource> resType = resEntity.getRelatedResourceType();
+				IResourceEntity resEntity = (IResourceEntity) defClass.newInstance();
+				Class<? extends IBaseResource> resType = baseFhirDao.getContext().getResourceDefinition(resEntity.getResourceType()).getImplementingClass();
 				if(resType != null){
 					CriteriaQuery<Long> criteria = builder.createQuery(Long.class); 
 					criteria.select(builder.count(criteria.from(defClass)));

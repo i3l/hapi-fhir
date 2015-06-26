@@ -23,6 +23,7 @@ package ca.uhn.fhir.jpa.entity;
 import static org.apache.commons.lang3.StringUtils.*;
 
 import java.io.Serializable;
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -41,7 +42,19 @@ import javax.persistence.Table;
 
 import org.hibernate.annotations.Index;
 
+import ca.uhn.fhir.context.FhirContext;
+import ca.uhn.fhir.context.RuntimeResourceDefinition;
+import ca.uhn.fhir.jpa.dao.GZipUtil;
+import ca.uhn.fhir.jpa.provider.HapiFhirContextHelper;
+import ca.uhn.fhir.model.api.IResource;
+import ca.uhn.fhir.model.api.ResourceMetadataKeyEnum;
+import ca.uhn.fhir.model.api.Tag;
+import ca.uhn.fhir.model.api.TagList;
+import ca.uhn.fhir.model.base.composite.BaseCodingDt;
 import ca.uhn.fhir.model.primitive.IdDt;
+import ca.uhn.fhir.model.primitive.InstantDt;
+import ca.uhn.fhir.parser.DataFormatException;
+import ca.uhn.fhir.parser.IParser;
 import ca.uhn.fhir.rest.server.Constants;
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException;
 
@@ -357,5 +370,13 @@ public class ResourceTable extends BaseHasResource implements Serializable {
 		}
 
 		return retVal;
+	}
+
+	
+
+	@Override
+	public IResourceEntity constructEntityFromResource(IResource resource) {
+		// TODO Auto-generated method stub
+		return null;
 	}
 }
